@@ -564,6 +564,10 @@ struct Input {
     }
 };
 
+using Answer = vector<int>;
+// 関数やキャプチャ付きラムダを指定できる。探索全体を一度呼び出すための型。
+using SearchMethod = function<Answer(const Input&, Mwc256XXA64&, const heuristic::TimeBudget&)>;
+
 // 焼きなまし: 完成した解の 1 要素の所属を反転する。
 struct AnnealingState {
     using Score = i64;
@@ -633,12 +637,67 @@ struct BeamState {
     }
 };
 
+Answer solve_greedy(const Input& input, Mwc256XXA64&, const heuristic::TimeBudget&) {
+    Answer answer;
+    answer.reserve(input.a.size());
+    i64 sum = 0;
+    for (i64 value : input.a) {
+        const int sign = sum > 0 ? -1 : 1;
+        answer.push_back(sign);
+        sum += sign * value;
+    }
+#ifdef LOCAL
+    cerr << "評価値: " << (sum >= 0 ? -sum : sum) << '\n';
+#endif
+    return answer;
+}
+
+Answer solve_annealing(const Input& input, Mwc256XXA64& rng,
+                       const heuristic::TimeBudget& budget) {
+    heuristic::AnnealingConfig config;
+    config.start_temperature = input.a.empty() ? 1.0
+        : max(1.0, double(*max_element(input.a.begin(), input.a.end())));
+    config.end_temperature = 0.1;
+    auto result = heuristic::simulated_annealing(AnnealingState(input), rng, budget, config);
+#ifdef LOCAL
+    cerr << "評価値: " << result.score << " 試行回数: " << result.iterations << '\n';
+#endif
+    return move(result.state.signs);
+}
+
+Answer finish_beam(heuristic::BeamResult<BeamState> result) {
+    // 時間切れで部分解が返ったときも、問題に応じた貪欲法で完成させる。
+    while (result.state.signs.size() < result.state.input->a.size()) {
+        result.state.apply({result.state.sum > 0 ? -1 : 1});
+    }
+#ifdef LOCAL
+    cerr << "完成後の評価値: " << result.state.score()
+         << " 探索深さ: " << result.depth << " 時間切れ: " << result.timed_out << '\n';
+#endif
+    return move(result.state.signs);
+}
+
+Answer solve_beam(const Input& input, Mwc256XXA64&, const heuristic::TimeBudget& budget) {
+    heuristic::BeamConfig config;
+    config.width = 128;
+    config.max_depth = int(input.a.size());
+    config.deduplicate = true;
+    return finish_beam(heuristic::beam_search(BeamState(input), budget, config));
+}
+
+Answer solve_tree_beam(const Input& input, Mwc256XXA64&, const heuristic::TimeBudget& budget) {
+    heuristic::BeamConfig config;
+    config.width = 128;
+    config.max_depth = int(input.a.size());
+    config.deduplicate = true;
+    return finish_beam(heuristic::tree_beam_search(BeamState(input), budget, config));
+}
+
 }  // namespace problem
 
 #ifndef HEURISTIC_TEMPLATE_NO_MAIN
 int main() {
-    enum class SearchMethod { Annealing, Beam, TreeBeam };
-    constexpr SearchMethod method = SearchMethod::Annealing;
+    const problem::SearchMethod method = problem::solve_annealing;
     constexpr heuristic::u64 seed = 1;
 
     ios::sync_with_stdio(false);
@@ -647,37 +706,8 @@ int main() {
     problem::Input input;
     if (!input.read()) return 0;
     heuristic::Mwc256XXA64 rng(seed);
-    vector<int> answer;
+    const auto answer = method(input, rng, budget);
 
-    if (method == SearchMethod::Annealing) {
-        heuristic::AnnealingConfig config;
-        config.start_temperature = input.a.empty() ? 1.0
-            : max(1.0, double(*max_element(input.a.begin(), input.a.end())));
-        config.end_temperature = 0.1;
-        auto result = heuristic::simulated_annealing(
-            problem::AnnealingState(input), rng, budget, config);
-        answer = move(result.state.signs);
-#ifdef LOCAL
-        cerr << "評価値: " << result.score << " 試行回数: " << result.iterations << '\n';
-#endif
-    } else {
-        heuristic::BeamConfig config;
-        config.width = 128;
-        config.max_depth = int(input.a.size());
-        config.deduplicate = true;
-        auto result = method == SearchMethod::Beam
-            ? heuristic::beam_search(problem::BeamState(input), budget, config)
-            : heuristic::tree_beam_search(problem::BeamState(input), budget, config);
-        // 時間切れで部分解が返ったときも、問題に応じた貪欲法で完成させる。
-        while (result.state.signs.size() < input.a.size()) {
-            result.state.apply({result.state.sum > 0 ? -1 : 1});
-        }
-        answer = move(result.state.signs);
-#ifdef LOCAL
-        cerr << "完成後の評価値: " << result.state.score()
-                  << " 探索深さ: " << result.depth << " 時間切れ: " << result.timed_out << '\n';
-#endif
-    }
     for (size_t i = 0; i < answer.size(); ++i) {
         if (i) cout << ' ';
         cout << answer[i];

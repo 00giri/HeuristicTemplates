@@ -1,26 +1,26 @@
 # ヒューリスティックコンテスト用テンプレート
 
-[main.cpp](main.cpp) は、焼きなまし法・ビームサーチ・木上のビームサーチを使うための単一ファイルのテンプレートです。問題に依存する入力・状態・遷移・出力を末尾にまとめています。
+[main.cpp](main.cpp) は、焼きなまし法・ビームサーチ・木上のビームサーチを使うための単一ファイルのテンプレートです。貪欲法の例と、独自の解法を関数やラムダ式で追加できる `SearchMethod` も用意しています。問題に依存する入力・状態・遷移・出力を末尾にまとめています。
 
 C++17 以上、`bits/stdc++.h` と 128 ビット整数拡張を利用できる環境が必要です。GCC、または libstdc++ を利用する Clang を想定しています。
 
 ## ビルドと実行
 
-使う探索は `main.cpp` の `main()` 冒頭で設定します。`method` を次のいずれかに変更し、再コンパイルしてください。
+使う探索は `main.cpp` の `main()` 冒頭で設定します。`method` に関数やラムダ式を指定し、再コンパイルしてください。
 
 ```cpp
-enum class SearchMethod { Annealing, Beam, TreeBeam };
-constexpr SearchMethod method = SearchMethod::Annealing;
+const problem::SearchMethod method = problem::solve_annealing;
 constexpr heuristic::u64 seed = 1;
 ```
 
 | `method` に設定する値 | 探索方法 |
 | --- | --- |
-| `SearchMethod::Annealing` | 焼きなまし法（初期設定） |
-| `SearchMethod::Beam` | 通常のビームサーチ |
-| `SearchMethod::TreeBeam` | 木上のビームサーチ |
+| `problem::solve_annealing` | 焼きなまし法（初期設定） |
+| `problem::solve_beam` | 通常のビームサーチ |
+| `problem::solve_tree_beam` | 木上のビームサーチ |
+| `problem::solve_greedy` | 左から順に和の小さい組へ入れる貪欲法 |
 
-乱数の seed も同じ場所の `seed` で設定します。初期値は `1` です。付属例のビームサーチは乱数を使いません。
+乱数の seed も同じ場所の `seed` で設定します。初期値は `1` です。付属例のビームサーチと貪欲法は乱数を使いません。
 
 ```bash
 g++ -std=c++17 -O2 -DNDEBUG -Wall -Wextra main.cpp -o main
@@ -44,9 +44,10 @@ g++ -std=c++17 -O2 -DNDEBUG -Wall -Wextra main.cpp -o main
 ## 問題に合わせて書き換える箇所
 
 1. `problem::Input` の入力形式を変更します。
-2. `problem::AnnealingState` または `problem::BeamState` の状態・評価値・遷移を変更します。
-3. `main()` で探索方法、乱数の seed、制限時間、温度、ビーム幅などを設定します。
-4. 最終状態から解を出力します。ビームが部分解を返す場合は、完成させる処理も用意します。
+2. `problem::Answer` と `main()` の出力処理を問題の解に合わせます。
+3. 既存の探索部品を使う場合は、`problem::AnnealingState` または `problem::BeamState` の状態・評価値・遷移を変更します。独自の解法は `SearchMethod` に合わせた関数を直接書けます。
+4. `main()` で探索方法、乱数の seed、制限時間を設定します。温度やビーム幅などは各 `solve_*` 関数、または自作の関数・ラムダ式で設定します。
+5. 探索結果を `Answer` に変換します。ビームが部分解を返す場合は、完成させる処理も用意します。
 
 先頭には `using namespace std;`、`ll`、`rep(i, s, n)`、`all(v)` を定義しています。例えば、問題依存部分では次のように書けます。
 
@@ -64,7 +65,54 @@ sort(all(a));
 | `beam_search` | 状態が小さく、コピーが軽い | 採用する候補についてだけ親状態をコピーする |
 | `tree_beam_search` | 状態が大きく、差分更新が軽い | 1 個の状態を木に沿って適用・巻き戻ししながら使う |
 
+## 貪欲法・独自の解法・手法の組み合わせ
+
+`problem::SearchMethod` は、次の形で呼べる関数やコピー可能な関数オブジェクトを保持します。キャプチャ付きラムダ式も使えます。
+
+```cpp
+namespace problem {
+Answer solve_custom(
+    const Input& input,
+    heuristic::Mwc256XXA64& rng,
+    const heuristic::TimeBudget& budget);
+}
+```
+
+`Answer` は付属例では `vector<int>` です。完成した解を返し、出力は `main()` に任せます。独自の解法では `State`・`Move`・`Undo` を定義する必要はありません。関数の本体を実装したら `method = problem::solve_custom` のように初期化するだけで使えます。
+
+`SearchMethod` は `function` による呼び出しを探索開始時に 1 回行います。候補列挙や差分更新のループ内には介在しません。付属の `solve_greedy` は `O(N)` で完成解を作り、乱数や時間制限を使いません。`N <= 2000` の例題で、締切後も解の完成に必要な短い処理を行う想定です。
+
+例えば、`main()` の `method` の定義を次に置き換えると、貪欲解を作った後に山登り法で改善できます。`passes` はラムダ式に保持する設定値です。
+
+```cpp
+const problem::SearchMethod method = [passes = 10](
+    const problem::Input& input, heuristic::Mwc256XXA64& rng,
+    const heuristic::TimeBudget& budget) -> problem::Answer {
+    auto answer = problem::solve_greedy(input, rng, budget);
+    ll sum = 0;
+    rep(i, 0, input.a.size()) sum += answer[i] * input.a[i];
+    rep(pass, 0, passes) {
+        bool improved = false;
+        rep(i, 0, input.a.size()) {
+            if (budget.expired()) return answer;
+            const ll next_sum = sum - 2 * answer[i] * input.a[i];
+            if (abs(next_sum) < abs(sum)) {
+                answer[i] *= -1;
+                sum = next_sum;
+                improved = true;
+            }
+        }
+        if (!improved) break;
+    }
+    return answer;
+};
+```
+
+同じ形で、ランダム多点スタートや複数の解法の比較も書けます。組み合わせる探索には同じ `rng` と `budget` を渡すと、乱数列と締切を共有できます。独自の探索でもループ中に `budget.expired()` を確認し、時間切れで返せる完成解を保持してください。ビームの設定を変更するラムダ式では、探索部品を直接呼び、付属例の `problem::finish_beam(move(result))` で部分解の補完と `Answer` への変換ができます。
+
 ## 状態のインターフェース
+
+以下は `heuristic` の探索部品を利用する状態に必要なインターフェースです。
 
 | 型・関数 | 必要な探索 | 役割 |
 | --- | --- | --- |
@@ -157,7 +205,7 @@ auto result = heuristic::beam_search(
 | `depth` | 完成した層の深さ。`moves.size()` と一致 |
 | `timed_out` | 時間制限によって探索を打ち切ったか |
 
-時間切れや全候補消滅では `depth < max_depth` になることがあります。完全な解が必要な問題では、結果を貪欲法などで完成させてください。付属例の `main()` に補完処理があります。
+時間切れや全候補消滅では `depth < max_depth` になることがあります。完全な解が必要な問題では、結果を貪欲法などで完成させてください。付属例の `problem::finish_beam()` に補完処理があります。
 
 重複除去を有効にする場合は、将来の遷移・評価に関係する情報をすべてハッシュに含めてください。同じハッシュを同じ状態とみなすため、ハッシュ衝突で候補を失う可能性があります。付属例では、同じ層の同じ部分和を統合しています。
 
@@ -263,4 +311,4 @@ g++ -std=c++17 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer tests
 /tmp/template_test_san
 ```
 
-[tests/template_test.cpp](tests/template_test.cpp) では、既知の乱数列、乱数の範囲、焼きなまし法の受理・棄却と最良解保持、全探索・独立した参照実装との比較、深い木、経路復元、時間切れ時の巻き戻しを検証します。木上版では最良候補を訪問する前後を含む 1080 通りの中断条件も検査します。テストから利用するため、`HEURISTIC_TEMPLATE_NO_MAIN` を定義すると `main()` だけを除外できます。
+[tests/template_test.cpp](tests/template_test.cpp) では、既知の乱数列、乱数の範囲、焼きなまし法の受理・棄却と最良解保持、全探索・独立した参照実装との比較、深い木、経路復元、時間切れ時の巻き戻しを検証します。木上版では最良候補を訪問する前後を含む 1080 通りの中断条件も検査します。`SearchMethod` についても、全方式の時間切れ時の完成解、ビーム結果の変換、設定を保持する独自の探索を検査します。テストから利用するため、`HEURISTIC_TEMPLATE_NO_MAIN` を定義すると `main()` だけを除外できます。
