@@ -6,6 +6,22 @@ C++17 以上、`bits/stdc++.h` と 128 ビット整数拡張を利用できる�
 
 ## ビルドと実行
 
+使う探索は `main.cpp` の `main()` 冒頭で設定します。`method` を次のいずれかに変更し、再コンパイルしてください。
+
+```cpp
+enum class SearchMethod { Annealing, Beam, TreeBeam };
+constexpr SearchMethod method = SearchMethod::Annealing;
+constexpr heuristic::u64 seed = 1;
+```
+
+| `method` に設定する値 | 探索方法 |
+| --- | --- |
+| `SearchMethod::Annealing` | 焼きなまし法（初期設定） |
+| `SearchMethod::Beam` | 通常のビームサーチ |
+| `SearchMethod::TreeBeam` | 木上のビームサーチ |
+
+乱数の seed も同じ場所の `seed` で設定します。初期値は `1` です。付属例のビームサーチは乱数を使いません。
+
 ```bash
 g++ -std=c++17 -O2 -DNDEBUG -Wall -Wextra main.cpp -o main
 ```
@@ -17,16 +33,11 @@ g++ -std=c++17 -O2 -DNDEBUG -Wall -Wextra main.cpp -o main
 2 3 5 7 11 13
 ```
 
-この入力を `input.txt` に保存し、使う探索を指定して実行します。
+この入力を `input.txt` に保存し、実行します。
 
 ```bash
-./main sa < input.txt
-./main beam < input.txt
-./main tree < input.txt
-./main sa 42 < input.txt
+./main < input.txt
 ```
-
-第 1 引数は `sa`（焼きなまし法）、`beam`（通常のビームサーチ）、`tree`（木上のビームサーチ）です。省略時は `sa` です。第 2 引数は乱数の seed で、省略時は `1` です。付属例のビームサーチは乱数を使いません。
 
 出力は、各要素の所属を表す `-1` または `1` を `N` 個並べたものです。標準出力には解だけを出します。コンパイル時に `-DLOCAL` を付けると、標準エラー出力に評価値や探索回数などを表示します。
 
@@ -34,7 +45,7 @@ g++ -std=c++17 -O2 -DNDEBUG -Wall -Wextra main.cpp -o main
 
 1. `problem::Input` の入力形式を変更します。
 2. `problem::AnnealingState` または `problem::BeamState` の状態・評価値・遷移を変更します。
-3. `main()` で探索方法、制限時間、温度、ビーム幅などを設定します。
+3. `main()` で探索方法、乱数の seed、制限時間、温度、ビーム幅などを設定します。
 4. 最終状態から解を出力します。ビームが部分解を返す場合は、完成させる処理も用意します。
 
 先頭には `using namespace std;`、`ll`、`rep(i, s, n)`、`all(v)` を定義しています。例えば、問題依存部分では次のように書けます。

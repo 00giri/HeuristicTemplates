@@ -636,18 +636,20 @@ struct BeamState {
 }  // namespace problem
 
 #ifndef HEURISTIC_TEMPLATE_NO_MAIN
-int main(int argc, char** argv) {
+int main() {
+    enum class SearchMethod { Annealing, Beam, TreeBeam };
+    constexpr SearchMethod method = SearchMethod::Annealing;
+    constexpr heuristic::u64 seed = 1;
+
     ios::sync_with_stdio(false);
     cin.tie(nullptr);
     const heuristic::TimeBudget budget(1.9);  // 出力用の余裕も残す
     problem::Input input;
     if (!input.read()) return 0;
-    const string method = argc > 1 ? argv[1] : "sa";
-    const heuristic::u64 seed = argc > 2 ? stoull(argv[2]) : 1;
     heuristic::Mwc256XXA64 rng(seed);
     vector<int> answer;
 
-    if (method == "sa") {
+    if (method == SearchMethod::Annealing) {
         heuristic::AnnealingConfig config;
         config.start_temperature = input.a.empty() ? 1.0
             : max(1.0, double(*max_element(input.a.begin(), input.a.end())));
@@ -658,12 +660,12 @@ int main(int argc, char** argv) {
 #ifdef LOCAL
         cerr << "評価値: " << result.score << " 試行回数: " << result.iterations << '\n';
 #endif
-    } else if (method == "beam" || method == "tree") {
+    } else {
         heuristic::BeamConfig config;
         config.width = 128;
         config.max_depth = int(input.a.size());
         config.deduplicate = true;
-        auto result = method == "beam"
+        auto result = method == SearchMethod::Beam
             ? heuristic::beam_search(problem::BeamState(input), budget, config)
             : heuristic::tree_beam_search(problem::BeamState(input), budget, config);
         // 時間切れで部分解が返ったときも、問題に応じた貪欲法で完成させる。
@@ -675,9 +677,6 @@ int main(int argc, char** argv) {
         cerr << "完成後の評価値: " << result.state.score()
                   << " 探索深さ: " << result.depth << " 時間切れ: " << result.timed_out << '\n';
 #endif
-    } else {
-        cerr << "探索方法は sa / beam / tree から指定してください。\n";
-        return 1;
     }
     for (size_t i = 0; i < answer.size(); ++i) {
         if (i) cout << ' ';
